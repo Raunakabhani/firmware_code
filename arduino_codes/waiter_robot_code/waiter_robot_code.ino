@@ -1,13 +1,13 @@
 //################### 1.DNC include required library for working of electronics of robot ####################################################################################################################
 #include <PID_v1.h>  // Library: PID by Brett Beauregard
-#include <micro_ros_arduino.h> // Include the Micro-ROS for Arduino library
+#include <micro_ros_arduino.h> // Include th
 
 //################### 2.DNC include required libraries for microros #########################################################################################################################################
 #include <stdio.h> // Include standard input-output library
 #include <rcl/rcl.h> // Include ROS Client Library (RCL)
 #include <rcl/error_handling.h> // Include RCL error handling functionalities
 #include <rclc/rclc.h> // Include ROS Client Library for C (RCLC)
-#include <rclc/executor.h> // Include ROS Client Library Executor functionalities
+#include <rclc/executor.h> // Include ROS Client Library Executor functionalitiese Micro-ROS for Arduino library
 
 //#################### 3.DNC include required message type (name of library is case sensitive and location of all msg type is inside micro ros lib,you can search message type to get correct name and path.)
 #include <geometry_msgs/msg/twist.h>
@@ -229,6 +229,7 @@ void RPM_velocity_calc() {
 //12.Arduino setup function
 void setup() {
   //DNC
+  Serial.begin(115200);
   set_microros_transports(); // Only required when sending data to esp over wifi
   allocator = rcl_get_default_allocator(); // Get default ROS allocator
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator)); // Initialize support object
@@ -242,41 +243,41 @@ void setup() {
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
     "lf_vel"));
 
-   RCCHECK(rclc_publisher_init_default(
+  RCCHECK(rclc_publisher_init_default(
     &rf_vel_publisher,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
     "rf_vel"));
 
-   RCCHECK(rclc_publisher_init_default(
+  RCCHECK(rclc_publisher_init_default(
     &lb_vel_publisher,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
     "lb_vel"));
 
-   RCCHECK(rclc_publisher_init_default(
+  RCCHECK(rclc_publisher_init_default(
     &rb_vel_publisher,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
     "rb_vel"));
 
    // Create ROS subscriber for PID controller
-   RCCHECK(rclc_subscription_init_default(
+  RCCHECK(rclc_subscription_init_default(
     &pid_control_subscriber,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
     "pid_control"));
     
    // Create ROS subscriber for cmd vel
-   RCCHECK(rclc_subscription_init_default(
+  RCCHECK(rclc_subscription_init_default(
     &cmd_vel_subscriber,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
     "cmd_vel"));
 
     // create timer,
-   const unsigned int timer_timeout = 100;
-   RCCHECK(rclc_timer_init_default(
+  const unsigned int timer_timeout = 100;
+  RCCHECK(rclc_timer_init_default(
     &timer,
     &support,
     RCL_MS_TO_NS(timer_timeout),
