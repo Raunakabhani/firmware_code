@@ -1,6 +1,10 @@
 //################### 1.DNC include required library for working of electronics of robot ####################################################################################################################
 #include <PID_v1.h>  // Library: PID by Brett Beauregard
 #include <micro_ros_arduino.h> // Include th
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
 
 //################### 2.DNC include required libraries for microros #########################################################################################################################################
 #include <stdio.h> // Include standard input-output library
@@ -15,6 +19,7 @@
 #include <std_msgs/msg/bool.h>
 #include <std_msgs/msg/string.h>
 #include <std_msgs/msg/int32.h>
+#include <sensor_msgs/msg/imu.h>
 
 //#################### 4.Create message object (All msg object name should be different,no matter if all 4 vel_msg is using same msg type , their object name should be different)###########################
 std_msgs__msg__Bool pid_bool_msg;
@@ -25,6 +30,8 @@ std_msgs__msg__Float32 lb_vel_msg;
 std_msgs__msg__Float32 rb_vel_msg;
 std_msgs__msg__String string_msg;
 std_msgs__msg__Int32 int32_msg;
+sensor_msgs__msg__Imu imu_msg;
+
 
 //################### 5. Declare ROS objects and variables (All object name of publisher and subscriber should be different ###############################################################################
 rcl_subscription_t pid_control_subscriber; // ROS subscription handle (for pid control)
@@ -33,6 +40,8 @@ rcl_publisher_t lf_vel_publisher;     //ROS publisher handle (for lf_vel from en
 rcl_publisher_t rf_vel_publisher;     //ROS publisher handle (for rf_vel from encoder)
 rcl_publisher_t lb_vel_publisher;     //ROS publisher handle (for lb vel from encoder)
 rcl_publisher_t rb_vel_publisher;     //ROS publisher handle (for rb vel from encoder)
+rcl_publisher_t imu_publisher;
+
 
 // what is this ????
 rclc_executor_t executor; // ROS executor object (responsible for managing the execution of tasks, such as calling callback functions when messages are received or timers expire)
@@ -40,6 +49,10 @@ rclc_support_t support; // ROS support object (provides support for creating nod
 rcl_allocator_t allocator; // ROS allocator object  (used to manage memory allocation and deallocation in a deterministic manner)
 rcl_node_t node; // ROS node object
 rcl_timer_t timer; // ROS timer object
+
+// Define the BNO055 I2C address and create an instance of the sensor
+#define BNO055_SAMPLERATE_DELAY_MS (100)
+Adafruit_BNO055 bno = Adafruit_BNO055(-1, 0x28, &Wire);
 
 //################### 6.To remove PWM noice ##############################################################################################################################################################
 bool PID_control = true; //Flag to enable/disable PID control
@@ -181,6 +194,34 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time)
 {  
   RCLC_UNUSED(last_call_time);
   if (timer != NULL) {
+    // Quaternion data
+    imu::Quaternion quat = bno.getQuat();
+    sensors_event_t orientationData, angVelocityData, linearAccelData;
+    bno.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER);
+    bno.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE);
+    bno.getEvent(&linearAccelData, Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+    imu_msg.header.frame_id.data = (char *)"imu_link";
+    imu_msg.header.frame_id.size = strlen("imu_link");
+    imu_msg.header.frame_id.capacity = imu_msg.header.frame_id.size + 1;
+    imu_msg.header.stamp.sec = 0;  // Fill with appropriate timestamp
+    imu_msg.header.stamp.nanosec = 0;
+
+    imu_msg.orientation.x = quat.x();
+    imu_msg.orientation.y = quat.y();
+    imu_msg.orientation.z = quat.z();
+    imu_msg.orientation.w = quat.w();
+    
+    imu_msg.angular_velocity.x = angVelocityData.gyro.x;
+    imu_msg.angular_velocity.y = angVelocityData.gyro.y;
+    imu_msg.angular_velocity.z = angVelocityData.gyro.z;
+
+    imu_msg.linear_acceleration.x = linearAccelData.acceleration.x;
+    imu_msg.linear_acceleration.y = linearAccelData.acceleration.y;
+    imu_msg.linear_acceleration.z = linearAccelData.acceleration.z;
+
+    RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
+
     lf_vel_msg.data = lf_velocity;
     rf_vel_msg.data = rf_velocity;
     lb_vel_msg.data = lb_velocity;
@@ -193,14 +234,16 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time)
       lb_vel_msg.data;
     RCSOFTCHECK(rcl_publish(&rb_vel_publisher, &rb_vel_msg, NULL));    
       rb_vel_msg.data;
+    }
   }
-}
+
 
 //######## 16.RPM Velocity calculation ###########################################################################################################################################################################
 int vel_feedback_period = 50; //velocity is updated every 50 milli seconds 
 unsigned long time_now = 0;
 
-void RPM_velocity_calc() {
+void RPM_velocity_calc() 
+{
   // millis return the number of milliseconds at the time, the esp board begins running the current program.
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= period) {
@@ -226,6 +269,7 @@ void RPM_velocity_calc() {
 }
 
 
+
 //12.Arduino setup function
 void setup() {
   //DNC
@@ -234,7 +278,6 @@ void setup() {
   allocator = rcl_get_default_allocator(); // Get default ROS allocator
   RCCHECK(rclc_support_init(&support, 0, NULL, &allocator)); // Initialize support object
   RCCHECK(rclc_node_init_default(&node, "micro_ros_arduino_node", "", &support));// Create ROS node
-  
 
   // create publisher
   RCCHECK(rclc_publisher_init_default(
@@ -274,6 +317,20 @@ void setup() {
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
     "cmd_vel"));
+    
+  // create publisher
+  RCCHECK(rclc_publisher_init_default(
+    &imu_publisher,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
+    "imu_data"));
+
+  if (!bno.begin()) {
+    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    while (1);
+  }
+  delay(1000);
+  bno.setExtCrystalUse(true);
 
     // create timer,
   const unsigned int timer_timeout = 100;
