@@ -12,6 +12,7 @@
 #include <rcl/error_handling.h> // Include RCL error handling functionalities
 #include <rclc/rclc.h> // Include ROS Client Library for C (RCLC)
 #include <rclc/executor.h> // Include ROS Client Library Executor functionalitiese Micro-ROS for Arduino library
+#include <rmw_microros/rmw_microros.h>
 
 //#################### 3.DNC include required message type (name of library is case sensitive and location of all msg type is inside micro ros lib,you can search message type to get correct name and path.)
 #include <geometry_msgs/msg/twist.h>
@@ -31,7 +32,14 @@ std_msgs__msg__Float32 rb_vel_msg;
 std_msgs__msg__String string_msg;
 std_msgs__msg__Int32 int32_msg;
 sensor_msgs__msg__Imu imu_msg;
+std_msgs__msg__Int32 msg;
 
+#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){return false;}}
+#define EXECUTE_EVERY_N_MS(MS, X)  do { \
+  static volatile int64_t init = -1; \
+  if (init == -1) { init = uxr_millis();} \
+  if (uxr_millis() - init > MS) { X; init = uxr_millis();} \
+} while (0)\
 
 //################### 5. Declare ROS objects and variables (All object name of publisher and subscriber should be different ###############################################################################
 rcl_subscription_t pid_control_subscriber; // ROS subscription handle (for pid control)
@@ -41,14 +49,22 @@ rcl_publisher_t rf_vel_publisher;     //ROS publisher handle (for rf_vel from en
 rcl_publisher_t lb_vel_publisher;     //ROS publisher handle (for lb vel from encoder)
 rcl_publisher_t rb_vel_publisher;     //ROS publisher handle (for rb vel from encoder)
 rcl_publisher_t imu_publisher;
+rcl_publisher_t publisher;
 
-
-// what is this ????
 rclc_executor_t executor; // ROS executor object (responsible for managing the execution of tasks, such as calling callback functions when messages are received or timers expire)
 rclc_support_t support; // ROS support object (provides support for creating nodes, setting up communication, and more.)
 rcl_allocator_t allocator; // ROS allocator object  (used to manage memory allocation and deallocation in a deterministic manner)
 rcl_node_t node; // ROS node object
 rcl_timer_t timer; // ROS timer object
+
+bool micro_ros_init_successful;
+
+enum states {
+  WAITING_AGENT,
+  AGENT_AVAILABLE,
+  AGENT_CONNECTED,
+  AGENT_DISCONNECTED
+} state;
 
 // Define the BNO055 I2C address and create an instance of the sensor
 #define BNO055_SAMPLERATE_DELAY_MS (100)
@@ -109,7 +125,6 @@ const float wheel_radius = wheel_dia / 2;
 const float circumference_of_wheel = 2 * 3.145 * wheel_radius;
 const float max_speed = (circumference_of_wheel * motor_rpm) / 60;
 
-
 //what is this ??
 bool rf_state = 0, lf_state = 0, rb_state = 0, lb_state = 0;
 
@@ -130,17 +145,6 @@ PID rf_PID(&rf_tick_PID_input, &rf_motor_pwm_output, &rf_Setpoint, Kp, Ki, Kd, D
 PID lf_PID(&lf_tick_PID_input, &lf_motor_pwm_output, &lf_Setpoint, Kp, Ki, Kd, DIRECT);
 PID rb_PID(&rb_tick_PID_input, &rb_motor_pwm_output, &rb_Setpoint, Kp, Ki, Kd, DIRECT);
 PID lb_PID(&lb_tick_PID_input, &lb_motor_pwm_output, &lb_Setpoint, Kp, Ki, Kd, DIRECT);
-
-
-//9. Doubt  Macros to handle micro-ROS return codes, error handling should be customized for the target syst 
-#define RCCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){error_loop();}} 
-#define RCSOFTCHECK(fn) { rcl_ret_t temp_rc = fn; if((temp_rc != RCL_RET_OK)){}}
-void error_loop(){
-//  while(1){
-//    digitalWrite(LED_PIN, !digitalRead(LED_PIN)); // Toggle the LED pin state
-//    delay(100); // Wait for 100 milliseconds
-//  }
-}
 
 //############## 12.Control and Encoder Defination #########################################################################################################################################################
 
@@ -189,11 +193,13 @@ void onTwist(const void *msgin) {
     side_vel = msg->linear.y;
 }
 
-//########### 15.Timer callback for publisher ##################################################################################################################################################################
 void timer_callback(rcl_timer_t * timer, int64_t last_call_time)
-{  
-  RCLC_UNUSED(last_call_time);
+{
+  (void) last_call_time;
   if (timer != NULL) {
+    rcl_publish(&publisher, &msg, NULL);
+    msg.data++;
+
     // Quaternion data
     imu::Quaternion quat = bno.getQuat();
     sensors_event_t orientationData, angVelocityData, linearAccelData;
@@ -219,23 +225,22 @@ void timer_callback(rcl_timer_t * timer, int64_t last_call_time)
     imu_msg.linear_acceleration.x = linearAccelData.acceleration.x;
     imu_msg.linear_acceleration.y = linearAccelData.acceleration.y;
     imu_msg.linear_acceleration.z = linearAccelData.acceleration.z;
-
-    RCSOFTCHECK(rcl_publish(&imu_publisher, &imu_msg, NULL));
-
+    rcl_publish(&imu_publisher, &imu_msg, NULL);
+  
     lf_vel_msg.data = lf_velocity;
     rf_vel_msg.data = rf_velocity;
     lb_vel_msg.data = lb_velocity;
     rb_vel_msg.data = rb_velocity;
-    RCSOFTCHECK(rcl_publish(&lf_vel_publisher, &lf_vel_msg, NULL));    
+    rcl_publish(&lf_vel_publisher, &lf_vel_msg, NULL);    
       lf_vel_msg.data;
-    RCSOFTCHECK(rcl_publish(&rf_vel_publisher, &rf_vel_msg, NULL));    
+    rcl_publish(&rf_vel_publisher, &rf_vel_msg, NULL);    
       rf_vel_msg.data;
-    RCSOFTCHECK(rcl_publish(&lb_vel_publisher, &lb_vel_msg, NULL));    
+    rcl_publish(&lb_vel_publisher, &lb_vel_msg, NULL);    
       lb_vel_msg.data;
-    RCSOFTCHECK(rcl_publish(&rb_vel_publisher, &rb_vel_msg, NULL));    
+    rcl_publish(&rb_vel_publisher, &rb_vel_msg, NULL);    
       rb_vel_msg.data;
-    }
   }
+}
 
 
 //######## 16.RPM Velocity calculation ###########################################################################################################################################################################
@@ -268,16 +273,28 @@ void RPM_velocity_calc()
   }
 }
 
-//12.Arduino setup function
-void setup() {
-  //DNC
-  Serial.begin(115200);
-  set_microros_transports(); // Only required when sending data to esp over wifi
-  allocator = rcl_get_default_allocator(); // Get default ROS allocator
-  RCCHECK(rclc_support_init(&support, 0, NULL, &allocator)); // Initialize support object
-  RCCHECK(rclc_node_init_default(&node, "micro_ros_arduino_node", "", &support));// Create ROS node
+// Functions create_entities and destroy_entities can take several seconds.
+// In order to reduce this rebuild the library with
+// - RMW_UXRCE_ENTITY_CREATION_DESTROY_TIMEOUT=0
+// - UCLIENT_MAX_SESSION_CONNECTION_ATTEMPTS=3
+
+bool create_entities()
+{
+  allocator = rcl_get_default_allocator();
+
+  // create init_options
+  RCCHECK(rclc_support_init(&support, 0, NULL, &allocator));
+
+  // create node
+  RCCHECK(rclc_node_init_default(&node, "micro_ros_arduino_node", "", &support));
 
   // create publisher
+  RCCHECK(rclc_publisher_init_best_effort(
+    &publisher,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int32),
+    "std_msgs_msg_Int32"));
+
   RCCHECK(rclc_publisher_init_default(
     &lf_vel_publisher,
     &node,
@@ -301,36 +318,28 @@ void setup() {
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
     "rb_vel"));
-
-   // Create ROS subscriber for PID controller
-  RCCHECK(rclc_subscription_init_default(
-    &pid_control_subscriber,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
-    "pid_control"));
-    
-   // Create ROS subscriber for cmd vel
-  RCCHECK(rclc_subscription_init_default(
-    &cmd_vel_subscriber,
-    &node,
-    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
-    "cmd_vel"));
-    
-  // create publisher
+  
   RCCHECK(rclc_publisher_init_default(
     &imu_publisher,
     &node,
     ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
     "imu_data"));
 
-  if (!bno.begin()) {
-    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-    while (1);
-  }
-  delay(1000);
-  bno.setExtCrystalUse(true);
+  // Create ROS subscriber for PID controller
+  RCCHECK(rclc_subscription_init_default(
+    &pid_control_subscriber,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool),
+    "pid_control"));
+    
+  // Create ROS subscriber for cmd vel
+  RCCHECK(rclc_subscription_init_default(
+    &cmd_vel_subscriber,
+    &node,
+    ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Twist),
+    "cmd_vel"));
 
-    // create timer,
+  // create timer,
   const unsigned int timer_timeout = 100;
   RCCHECK(rclc_timer_init_default(
     &timer,
@@ -338,12 +347,47 @@ void setup() {
     RCL_MS_TO_NS(timer_timeout),
     timer_callback));
 
-  // Initialize ROS executor
+  // create executor
+  executor = rclc_executor_get_zero_initialized_executor();
   RCCHECK(rclc_executor_init(&executor, &support.context, 3, &allocator));
   RCCHECK(rclc_executor_add_subscription(&executor, &pid_control_subscriber, &pid_bool_msg, &pidControlCallback, ON_NEW_DATA));
   RCCHECK(rclc_executor_add_subscription(&executor, &cmd_vel_subscriber, &twist_msg, &onTwist, ON_NEW_DATA));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
-    
+
+  return true;
+}
+
+void destroy_entities()
+{
+  rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
+  (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
+
+  rcl_publisher_fini(&publisher, &node);
+  rcl_timer_fini(&timer);
+  rclc_executor_fini(&executor);
+  rcl_node_fini(&node);
+  rclc_support_fini(&support);
+}
+
+void setup() {
+
+  Serial.begin(115200);
+  set_microros_transports();
+  pinMode(LED_PIN, OUTPUT);
+
+  state = WAITING_AGENT;
+
+  msg.data = 0;
+
+  //bno055 creating problem for micro ros connection
+
+  // if (!bno.begin()) {
+  //   Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+  //   while (1);
+  // }
+  // delay(1000);
+  // bno.setExtCrystalUse(true);
+
   pinMode(right_front_enA, INPUT);
   pinMode(right_front_enB, INPUT);
 
@@ -399,7 +443,7 @@ void setup() {
   lb_PID.SetMode(AUTOMATIC);
   lb_PID.SetTunings(Kp, Ki, Kd);
 
-
+  
 }
 
 //######## 17.PID execution ######################################################################################################################################################################################
@@ -519,10 +563,37 @@ void PID_Execution() {
   }
 }
 
-// Arduino main loop
 void loop() {
-  RPM_velocity_calc();
-  delay(100); // Wait for 100 milliseconds
-  RCCHECK(rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100))); // Spin the ROS executor
-  PID_Execution();
+  switch (state) {
+    case WAITING_AGENT:
+      EXECUTE_EVERY_N_MS(500, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
+      break;
+    case AGENT_AVAILABLE:
+      state = (true == create_entities()) ? AGENT_CONNECTED : WAITING_AGENT;
+      if (state == WAITING_AGENT) {
+        destroy_entities();
+      };
+      break;
+    case AGENT_CONNECTED:
+      EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+      if (state == AGENT_CONNECTED) {
+        RPM_velocity_calc();
+        delay(100); // Wait for 100 milliseconds
+        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100)); // Spin the ROS executor
+        PID_Execution();
+      }
+      break;
+    case AGENT_DISCONNECTED:
+      destroy_entities();
+      state = WAITING_AGENT;
+      break;
+    default:
+      break;
+  }
+
+  if (state == AGENT_CONNECTED) {
+    digitalWrite(LED_PIN, 1);
+  } else {
+    digitalWrite(LED_PIN, 0);
+  }
 }
