@@ -138,8 +138,8 @@ double rb_Setpoint, rb_tick_PID_input, rb_motor_pwm_output;
 double lb_Setpoint, lb_tick_PID_input, lb_motor_pwm_output;
 
 //PID constants
-double Kp = 0.1, Ki = 4, Kd = 0;
-
+// double Kp = 0.15, Ki = 1.2, Kd = 0;
+double Kp = 0.1, Ki = 4, Kd = 0;  // default -working 
 //passing necessary parameters in PID lib function
 PID rf_PID(&rf_tick_PID_input, &rf_motor_pwm_output, &rf_Setpoint, Kp, Ki, Kd, DIRECT);
 PID lf_PID(&lf_tick_PID_input, &lf_motor_pwm_output, &lf_Setpoint, Kp, Ki, Kd, DIRECT);
@@ -340,7 +340,7 @@ bool create_entities()
     "cmd_vel"));
 
   // create timer,
-  const unsigned int timer_timeout = 100;
+  const unsigned int timer_timeout = 100; //more the time , fast the micro ros reconnects
   RCCHECK(rclc_timer_init_default(
     &timer,
     &support,
@@ -379,14 +379,17 @@ void setup() {
 
   msg.data = 0;
 
-  //bno055 creating problem for micro ros connection
+  /////////////////////////////////
+  // this code will only work if imu is connected 
+  // to remove dependency comment out this portion of code
+  if (!bno.begin()) {
+    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    while (1);
+  }
+  delay(1000);
+  bno.setExtCrystalUse(true);
 
-  // if (!bno.begin()) {
-  //   Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-  //   while (1);
-  // }
-  // delay(1000);
-  // bno.setExtCrystalUse(true);
+  /////////////////////////////////
 
   pinMode(right_front_enA, INPUT);
   pinMode(right_front_enB, INPUT);

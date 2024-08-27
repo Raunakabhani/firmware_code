@@ -92,10 +92,10 @@ void setup() {
     "imu_data"));
 
   // Initialize the sensor
-  if (!bno.begin()) {
-    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-    while (1);
-  }
+  // if (!bno.begin()) {
+  //   Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+  //   while (1);
+  // }
   delay(1000);
   bno.setExtCrystalUse(true);
 

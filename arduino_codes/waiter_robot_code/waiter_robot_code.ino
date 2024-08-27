@@ -323,12 +323,12 @@ void setup() {
     ROSIDL_GET_MSG_TYPE_SUPPORT(sensor_msgs, msg, Imu),
     "imu_data"));
 
-  if (!bno.begin()) {
-    Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
-    while (1);
-  }
-  delay(1000);
-  bno.setExtCrystalUse(true);
+  // if (!bno.begin()) {
+  //   Serial.println("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+  //   while (1);
+  // }
+  // delay(1000);
+  // bno.setExtCrystalUse(true);
 
     // create timer,
   const unsigned int timer_timeout = 100;
